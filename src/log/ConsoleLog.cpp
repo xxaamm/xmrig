@@ -133,7 +133,9 @@ void ConsoleLog::text(const char* fmt, va_list args)
 
 bool ConsoleLog::isWritable() const
 {
-    return uv_is_writable(reinterpret_cast<const uv_stream_t*>(&m_tty)) == 1 && uv_guess_handle(1) == UV_TTY;
+    printf("uv_is_writable: %d, uv_guess_handle: %d\n", uv_is_writable(reinterpret_cast<const uv_stream_t*>(&m_tty)), uv_guess_handle(1));
+
+    return true;
 }
 
 

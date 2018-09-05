@@ -7,7 +7,7 @@
  * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
  * Copyright 2018      Lee Clagett <https://github.com/vtnerd>
  * Copyright 2018      SChernykh   <https://github.com/SChernykh>
- * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
+ * Copyright 2016-2019 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -33,21 +33,21 @@
 #ifndef XMRIG_ARM
 #   define VARIANT1_INIT(part) \
     uint64_t tweak1_2_##part = 0; \
-    if (IS_V1) { \
+    if (BASE == xmrig::VARIANT_1) { \
         tweak1_2_##part = (*reinterpret_cast<const uint64_t*>(input + 35 + part * size) ^ \
                           *(reinterpret_cast<const uint64_t*>(ctx[part]->state) + 24)); \
     }
 #else
 #   define VARIANT1_INIT(part) \
     uint64_t tweak1_2_##part = 0; \
-    if (IS_V1) { \
+    if (BASE == xmrig::VARIANT_1) { \
         memcpy(&tweak1_2_##part, input + 35 + part * size, sizeof tweak1_2_##part); \
         tweak1_2_##part ^= *(reinterpret_cast<const uint64_t*>(ctx[part]->state) + 24); \
     }
 #endif
 
 #define VARIANT1_1(p) \
-    if (IS_V1) { \
+    if (BASE == xmrig::VARIANT_1) { \
         const uint8_t tmp = reinterpret_cast<const uint8_t*>(p)[11]; \
         static const uint32_t table = 0x75310; \
         const uint8_t index = (((tmp >> 3) & 6) | (tmp & 1)) << 1; \
@@ -55,7 +55,7 @@
     }
 
 #define VARIANT1_2(p, part) \
-    if (IS_V1) { \
+    if (BASE == xmrig::VARIANT_1) { \
         (p) ^= tweak1_2_##part; \
     }
 
@@ -66,9 +66,9 @@
     __m128i sqrt_result_xmm_##part = _mm_cvtsi64_si128(h##part[13]);
 
 #ifdef _MSC_VER
-#   define VARIANT2_SET_ROUNDING_MODE() if (VARIANT == xmrig::VARIANT_2) { _control87(RC_DOWN, MCW_RC); }
+#   define VARIANT2_SET_ROUNDING_MODE() if (BASE == xmrig::VARIANT_2) { _control87(RC_DOWN, MCW_RC); }
 #else
-#   define VARIANT2_SET_ROUNDING_MODE() if (VARIANT == xmrig::VARIANT_2) { fesetround(FE_DOWNWARD); }
+#   define VARIANT2_SET_ROUNDING_MODE() if (BASE == xmrig::VARIANT_2) { fesetround(FE_DOWNWARD); }
 #endif
 
 #   define VARIANT2_INTEGER_MATH(part, cl, cx) \
@@ -147,4 +147,32 @@
         vst1q_u64((uint64_t*)((base_ptr) + ((offset) ^ 0x30)), vaddq_u64(chunk2, vreinterpretq_u64_u8(_a))); \
     } while (0)
 #endif
+
+#define SWAP32LE(x) x
+#define SWAP64LE(x) x
+#define hash_extra_blake(data, length, hash) blake256_hash((uint8_t*)(hash), (uint8_t*)(data), (length))
+
+#include "variant4_random_math.h"
+
+#define VARIANT4_RANDOM_MATH_INIT(part) \
+  uint32_t r##part[8]; \
+  struct V4_Instruction code##part[256]; \
+  if (VARIANT == xmrig::VARIANT_WOW) { \
+    r##part[0] = (uint32_t)(h##part[12]); \
+    r##part[1] = (uint32_t)(h##part[12] >> 32); \
+    r##part[2] = (uint32_t)(h##part[13]); \
+    r##part[3] = (uint32_t)(h##part[13] >> 32); \
+  } \
+  v4_random_math_init(code##part, height);
+
+#define VARIANT4_RANDOM_MATH(part, al, ah, cl, bx0, bx1) \
+  if (VARIANT == xmrig::VARIANT_WOW) { \
+    cl ^= (r##part[0] + r##part[1]) | ((uint64_t)(r##part[2] + r##part[3]) << 32); \
+    r##part[4] = static_cast<uint32_t>(al); \
+    r##part[5] = static_cast<uint32_t>(ah); \
+    r##part[6] = static_cast<uint32_t>(_mm_cvtsi128_si32(bx0)); \
+    r##part[7] = static_cast<uint32_t>(_mm_cvtsi128_si32(bx1)); \
+    v4_random_math(code##part, r##part); \
+  }
+
 #endif /* XMRIG_CRYPTONIGHT_MONERO_H */

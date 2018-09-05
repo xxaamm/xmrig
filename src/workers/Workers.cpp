@@ -5,7 +5,8 @@
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
  * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
- * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
+ * Copyright 2018-2019 SChernykh   <https://github.com/SChernykh>
+ * Copyright 2016-2019 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -166,6 +167,10 @@ void Workers::start(xmrig::Controller *controller)
         thread->print();
     }
     LOG_NOTICE("--------------------------------------------------------------------------");
+#   endif
+
+#   ifndef XMRIG_NO_ASM
+    xmrig::CpuThread::patchAsmVariants();
 #   endif
 
     m_controller = controller;
@@ -341,16 +346,16 @@ void Workers::start(IWorker *worker)
 
     if (m_status.started == m_status.threads) {
         const double percent = (double) m_status.hugePages / m_status.pages * 100.0;
-        const size_t memory  = m_status.ways * xmrig::cn_select_memory(m_status.algo) / 1048576;
+        const size_t memory  = m_status.ways * xmrig::cn_select_memory(m_status.algo) / 1024;
 
         if (m_status.colors) {
-            LOG_INFO(GREEN_BOLD("READY (CPU)") " threads " CYAN_BOLD("%zu(%zu)") " huge pages %s%zu/%zu %1.0f%%\x1B[0m memory " CYAN_BOLD("%zu.0 MB") "",
+            LOG_INFO(GREEN_BOLD("READY (CPU)") " threads " CYAN_BOLD("%zu(%zu)") " huge pages %s%zu/%zu %1.0f%%\x1B[0m memory " CYAN_BOLD("%zu KB") "",
                      m_status.threads, m_status.ways,
                      (m_status.hugePages == m_status.pages ? "\x1B[1;32m" : (m_status.hugePages == 0 ? "\x1B[1;31m" : "\x1B[1;33m")),
                      m_status.hugePages, m_status.pages, percent, memory);
         }
         else {
-            LOG_INFO("READY (CPU) threads %zu(%zu) huge pages %zu/%zu %1.0f%% memory %zu.0 MB",
+            LOG_INFO("READY (CPU) threads %zu(%zu) huge pages %zu/%zu %1.0f%% memory %zu KB",
                      m_status.threads, m_status.ways, m_status.hugePages, m_status.pages, percent, memory);
         }
     }

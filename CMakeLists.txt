@@ -4,11 +4,14 @@ project(xmrig)
 option(WITH_LIBCPUID  "Use Libcpuid" ON)
 option(WITH_AEON      "CryptoNight-Lite support" ON)
 option(WITH_SUMO      "CryptoNight-Heavy support" ON)
+option(WITH_CN_PICO   "CryptoNight-Pico support" ON)
+option(WITH_CN_GPU    "CryptoNight-GPU support" ON)
 option(WITH_HTTPD     "HTTP REST API" ON)
 option(WITH_DEBUG_LOG "Enable debug log output" OFF)
 option(WITH_TLS       "Enable OpenSSL support" ON)
 option(WITH_ASM       "Enable ASM PoW implementations" ON)
 option(BUILD_STATIC   "Build static binary" OFF)
+option(ARM_TARGET     "Force use specific ARM target 8 or 7" 0)
 
 include (CheckIncludeFile)
 include (cmake/cpu.cmake)
@@ -17,6 +20,7 @@ include (cmake/cpu.cmake)
 set(HEADERS
     src/api/NetworkState.h
     src/App.h
+    src/base/tools/String.h
     src/common/config/CommonConfig.h
     src/common/config/ConfigLoader.h
     src/common/config/ConfigWatcher.h
@@ -82,6 +86,7 @@ set(HEADERS_CRYPTO
     src/crypto/hash.h
     src/crypto/skein_port.h
     src/crypto/soft_aes.h
+    src/crypto/asm/CryptonightR_template.h
    )
 
 if (XMRIG_ARM)
@@ -93,6 +98,7 @@ endif()
 set(SOURCES
     src/api/NetworkState.cpp
     src/App.cpp
+    src/base/tools/String.cpp
     src/common/config/CommonConfig.cpp
     src/common/config/ConfigLoader.cpp
     src/common/config/ConfigWatcher.cpp
@@ -130,6 +136,7 @@ set(SOURCES_CRYPTO
     src/crypto/c_blake256.c
     src/crypto/c_jh.c
     src/crypto/c_skein.c
+    src/crypto/CryptonightR_gen.cpp
    )
 
 if (WIN32)
@@ -155,11 +162,11 @@ else()
         src/Mem_unix.cpp
         )
 
-    set(EXTRA_LIBS pthread rt dl)
-endif()
-
-if (CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
-    set(EXTRA_LIBS ${EXTRA_LIBS} kvm)
+    if (CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
+        set(EXTRA_LIBS kvm pthread)
+    else()
+        set(EXTRA_LIBS pthread rt dl)
+    endif()
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -197,6 +204,7 @@ endif()
 
 include(cmake/OpenSSL.cmake)
 include(cmake/asm.cmake)
+include(cmake/cn-gpu.cmake)
 
 CHECK_INCLUDE_FILE (syslog.h HAVE_SYSLOG_H)
 if (HAVE_SYSLOG_H)
@@ -214,6 +222,10 @@ endif()
 
 if (NOT WITH_IPBC)
     add_definitions(/DXMRIG_NO_IPBC)
+endif()
+
+if (NOT WITH_CN_PICO)
+    add_definitions(/DXMRIG_NO_CN_PICO)
 endif()
 
 if (WITH_HTTPD)
@@ -255,5 +267,5 @@ if (WITH_DEBUG_LOG)
     add_definitions(/DAPP_DEBUG)
 endif()
 
-add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES} ${SOURCES_OS} ${SOURCES_CPUID} ${HEADERS_CRYPTO} ${SOURCES_CRYPTO} ${SOURCES_SYSLOG} ${HTTPD_SOURCES} ${TLS_SOURCES} ${XMRIG_ASM_SOURCES})
-target_link_libraries(${PROJECT_NAME} ${XMRIG_ASM_LIBRARY} ${OPENSSL_LIBRARIES} ${UV_LIBRARIES} ${MHD_LIBRARY} ${EXTRA_LIBS} ${CPUID_LIB})
+add_executable(${CMAKE_PROJECT_NAME} ${HEADERS} ${SOURCES} ${SOURCES_OS} ${SOURCES_CPUID} ${HEADERS_CRYPTO} ${SOURCES_CRYPTO} ${SOURCES_SYSLOG} ${HTTPD_SOURCES} ${TLS_SOURCES} ${XMRIG_ASM_SOURCES} ${CN_GPU_SOURCES})
+target_link_libraries(${CMAKE_PROJECT_NAME} ${XMRIG_ASM_LIBRARY} ${OPENSSL_LIBRARIES} ${UV_LIBRARIES} ${MHD_LIBRARY} ${EXTRA_LIBS} ${CPUID_LIB})

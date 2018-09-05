@@ -5,7 +5,8 @@
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
  * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
- * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
+ * Copyright 2018-2019 SChernykh   <https://github.com/SChernykh>
+ * Copyright 2016-2019 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -28,6 +29,7 @@
 #include "common/log/Log.h"
 #include "common/net/Pool.h"
 #include "crypto/Asm.h"
+#include "Mem.h"
 #include "rapidjson/document.h"
 #include "workers/CpuThread.h"
 
@@ -53,23 +55,141 @@ xmrig::CpuThread::CpuThread(size_t index, Algo algorithm, AlgoVariant av, Multiw
 }
 
 
+#ifndef XMRIG_NO_ASM
+template<typename T, typename U>
+static void patchCode(T dst, U src, const uint32_t iterations, const uint32_t mask)
+{
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(src);
+
+    // Workaround for Visual Studio placing trampoline in debug builds.
+#   if defined(_MSC_VER)
+    if (p[0] == 0xE9) {
+        p += *(int32_t*)(p + 1) + 5;
+    }
+#   endif
+
+    size_t size = 0;
+    while (*(uint32_t*)(p + size) != 0xDEADC0DE) {
+        ++size;
+    }
+    size += sizeof(uint32_t);
+
+    memcpy((void*) dst, (const void*) src, size);
+
+    uint8_t* patched_data = reinterpret_cast<uint8_t*>(dst);
+    for (size_t i = 0; i + sizeof(uint32_t) <= size; ++i) {
+        switch (*(uint32_t*)(patched_data + i)) {
+        case xmrig::CRYPTONIGHT_ITER:
+            *(uint32_t*)(patched_data + i) = iterations;
+            break;
+
+        case xmrig::CRYPTONIGHT_MASK:
+            *(uint32_t*)(patched_data + i) = mask;
+            break;
+        }
+    }
+}
+
+
+extern "C" void cnv2_mainloop_ivybridge_asm(cryptonight_ctx *ctx);
+extern "C" void cnv2_mainloop_ryzen_asm(cryptonight_ctx *ctx);
+extern "C" void cnv2_mainloop_bulldozer_asm(cryptonight_ctx *ctx);
+extern "C" void cnv2_double_mainloop_sandybridge_asm(cryptonight_ctx *ctx0, cryptonight_ctx *ctx1);
+
+
+xmrig::CpuThread::cn_mainloop_fun        cn_half_mainloop_ivybridge_asm          = nullptr;
+xmrig::CpuThread::cn_mainloop_fun        cn_half_mainloop_ryzen_asm              = nullptr;
+xmrig::CpuThread::cn_mainloop_fun        cn_half_mainloop_bulldozer_asm          = nullptr;
+xmrig::CpuThread::cn_mainloop_double_fun cn_half_double_mainloop_sandybridge_asm = nullptr;
+
+xmrig::CpuThread::cn_mainloop_fun        cn_trtl_mainloop_ivybridge_asm          = nullptr;
+xmrig::CpuThread::cn_mainloop_fun        cn_trtl_mainloop_ryzen_asm              = nullptr;
+xmrig::CpuThread::cn_mainloop_fun        cn_trtl_mainloop_bulldozer_asm          = nullptr;
+xmrig::CpuThread::cn_mainloop_double_fun cn_trtl_double_mainloop_sandybridge_asm = nullptr;
+
+
+void xmrig::CpuThread::patchAsmVariants()
+{
+    const int allocation_size = 65536;
+    uint8_t *base = static_cast<uint8_t *>(Mem::allocateExecutableMemory(allocation_size));
+
+    cn_half_mainloop_ivybridge_asm              = reinterpret_cast<cn_mainloop_fun>         (base + 0x0000);
+    cn_half_mainloop_ryzen_asm                  = reinterpret_cast<cn_mainloop_fun>         (base + 0x1000);
+    cn_half_mainloop_bulldozer_asm              = reinterpret_cast<cn_mainloop_fun>         (base + 0x2000);
+    cn_half_double_mainloop_sandybridge_asm     = reinterpret_cast<cn_mainloop_double_fun>  (base + 0x3000);
+
+    cn_trtl_mainloop_ivybridge_asm              = reinterpret_cast<cn_mainloop_fun>         (base + 0x4000);
+    cn_trtl_mainloop_ryzen_asm                  = reinterpret_cast<cn_mainloop_fun>         (base + 0x5000);
+    cn_trtl_mainloop_bulldozer_asm              = reinterpret_cast<cn_mainloop_fun>         (base + 0x6000);
+    cn_trtl_double_mainloop_sandybridge_asm     = reinterpret_cast<cn_mainloop_double_fun>  (base + 0x7000);
+
+    patchCode(cn_half_mainloop_ivybridge_asm,           cnv2_mainloop_ivybridge_asm,            xmrig::CRYPTONIGHT_HALF_ITER,   xmrig::CRYPTONIGHT_MASK);
+    patchCode(cn_half_mainloop_ryzen_asm,               cnv2_mainloop_ryzen_asm,                xmrig::CRYPTONIGHT_HALF_ITER,   xmrig::CRYPTONIGHT_MASK);
+    patchCode(cn_half_mainloop_bulldozer_asm,           cnv2_mainloop_bulldozer_asm,            xmrig::CRYPTONIGHT_HALF_ITER,   xmrig::CRYPTONIGHT_MASK);
+    patchCode(cn_half_double_mainloop_sandybridge_asm,  cnv2_double_mainloop_sandybridge_asm,   xmrig::CRYPTONIGHT_HALF_ITER,   xmrig::CRYPTONIGHT_MASK);
+
+    patchCode(cn_trtl_mainloop_ivybridge_asm,           cnv2_mainloop_ivybridge_asm,            xmrig::CRYPTONIGHT_TRTL_ITER,   xmrig::CRYPTONIGHT_PICO_MASK);
+    patchCode(cn_trtl_mainloop_ryzen_asm,               cnv2_mainloop_ryzen_asm,                xmrig::CRYPTONIGHT_TRTL_ITER,   xmrig::CRYPTONIGHT_PICO_MASK);
+    patchCode(cn_trtl_mainloop_bulldozer_asm,           cnv2_mainloop_bulldozer_asm,            xmrig::CRYPTONIGHT_TRTL_ITER,   xmrig::CRYPTONIGHT_PICO_MASK);
+    patchCode(cn_trtl_double_mainloop_sandybridge_asm,  cnv2_double_mainloop_sandybridge_asm,   xmrig::CRYPTONIGHT_TRTL_ITER,   xmrig::CRYPTONIGHT_PICO_MASK);
+
+    Mem::protectExecutableMemory(base, allocation_size);
+    Mem::flushInstructionCache(base, allocation_size);
+}
+#endif
+
+
 bool xmrig::CpuThread::isSoftAES(AlgoVariant av)
 {
     return av == AV_SINGLE_SOFT || av == AV_DOUBLE_SOFT || av > AV_PENTA;
 }
 
 
+#ifndef XMRIG_NO_ASM
+template<xmrig::Algo algo, xmrig::Variant variant>
+static inline void add_asm_func(xmrig::CpuThread::cn_hash_fun(&asm_func_map)[xmrig::ALGO_MAX][xmrig::AV_MAX][xmrig::VARIANT_MAX][xmrig::ASM_MAX])
+{
+    asm_func_map[algo][xmrig::AV_SINGLE][variant][xmrig::ASM_INTEL] = cryptonight_single_hash_asm<algo, variant, xmrig::ASM_INTEL>;
+    asm_func_map[algo][xmrig::AV_SINGLE][variant][xmrig::ASM_RYZEN] = cryptonight_single_hash_asm<algo, variant, xmrig::ASM_RYZEN>;
+    asm_func_map[algo][xmrig::AV_SINGLE][variant][xmrig::ASM_BULLDOZER] = cryptonight_single_hash_asm<algo, variant, xmrig::ASM_BULLDOZER>;
+
+    asm_func_map[algo][xmrig::AV_DOUBLE][variant][xmrig::ASM_INTEL] = cryptonight_double_hash_asm<algo, variant, xmrig::ASM_INTEL>;
+    asm_func_map[algo][xmrig::AV_DOUBLE][variant][xmrig::ASM_RYZEN] = cryptonight_double_hash_asm<algo, variant, xmrig::ASM_RYZEN>;
+    asm_func_map[algo][xmrig::AV_DOUBLE][variant][xmrig::ASM_BULLDOZER] = cryptonight_double_hash_asm<algo, variant, xmrig::ASM_BULLDOZER>;
+}
+#endif
+
 xmrig::CpuThread::cn_hash_fun xmrig::CpuThread::fn(Algo algorithm, AlgoVariant av, Variant variant, Assembly assembly)
 {
     assert(variant >= VARIANT_0 && variant < VARIANT_MAX);
 
 #   ifndef XMRIG_NO_ASM
-    constexpr const size_t count = VARIANT_MAX * 10 * 3 + 3;
-#   else
-    constexpr const size_t count = VARIANT_MAX * 10 * 3;
+    if (assembly == ASM_AUTO) {
+        assembly = Cpu::info()->assembly();
+    }
+
+    static cn_hash_fun asm_func_map[ALGO_MAX][AV_MAX][VARIANT_MAX][ASM_MAX] = {};
+    static bool asm_func_map_initialized = false;
+
+    if (!asm_func_map_initialized) {
+        add_asm_func<CRYPTONIGHT, VARIANT_2>(asm_func_map);
+        add_asm_func<CRYPTONIGHT, VARIANT_HALF>(asm_func_map);
+        add_asm_func<CRYPTONIGHT, VARIANT_WOW>(asm_func_map);
+
+        add_asm_func<CRYPTONIGHT_PICO, VARIANT_HALF>(asm_func_map);
+
+        asm_func_map_initialized = true;
+    }
+
+    cn_hash_fun fun = asm_func_map[algorithm][av][variant][assembly];
+    if (fun) {
+        return fun;
+    }
 #   endif
 
-    static const cn_hash_fun func_table[count] = {
+    constexpr const size_t count = VARIANT_MAX * 10 * ALGO_MAX;
+
+    static const cn_hash_fun func_table[] = {
         cryptonight_single_hash<CRYPTONIGHT, false, VARIANT_0>,
         cryptonight_double_hash<CRYPTONIGHT, false, VARIANT_0>,
         cryptonight_single_hash<CRYPTONIGHT, true,  VARIANT_0>,
@@ -151,6 +271,45 @@ xmrig::CpuThread::cn_hash_fun xmrig::CpuThread::fn(Algo algorithm, AlgoVariant a
         cryptonight_quad_hash<CRYPTONIGHT,   true,  VARIANT_2>,
         cryptonight_penta_hash<CRYPTONIGHT,  true,  VARIANT_2>,
 
+        cryptonight_single_hash<CRYPTONIGHT, false, VARIANT_HALF>,
+        cryptonight_double_hash<CRYPTONIGHT, false, VARIANT_HALF>,
+        cryptonight_single_hash<CRYPTONIGHT, true,  VARIANT_HALF>,
+        cryptonight_double_hash<CRYPTONIGHT, true,  VARIANT_HALF>,
+        cryptonight_triple_hash<CRYPTONIGHT, false, VARIANT_HALF>,
+        cryptonight_quad_hash<CRYPTONIGHT,   false, VARIANT_HALF>,
+        cryptonight_penta_hash<CRYPTONIGHT,  false, VARIANT_HALF>,
+        cryptonight_triple_hash<CRYPTONIGHT, true,  VARIANT_HALF>,
+        cryptonight_quad_hash<CRYPTONIGHT,   true,  VARIANT_HALF>,
+        cryptonight_penta_hash<CRYPTONIGHT,  true,  VARIANT_HALF>,
+
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+
+#       ifndef XMRIG_NO_CN_GPU
+        cryptonight_single_hash_gpu<CRYPTONIGHT, false, VARIANT_GPU>,
+        nullptr,
+        cryptonight_single_hash_gpu<CRYPTONIGHT, true,  VARIANT_GPU>,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+#       else
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+#       endif
+
+        cryptonight_single_hash<CRYPTONIGHT, false, VARIANT_WOW>,
+        cryptonight_double_hash<CRYPTONIGHT, false, VARIANT_WOW>,
+        cryptonight_single_hash<CRYPTONIGHT, true,  VARIANT_WOW>,
+        cryptonight_double_hash<CRYPTONIGHT, true,  VARIANT_WOW>,
+        cryptonight_triple_hash<CRYPTONIGHT, false, VARIANT_WOW>,
+        cryptonight_quad_hash<CRYPTONIGHT,   false, VARIANT_WOW>,
+        cryptonight_penta_hash<CRYPTONIGHT,  false, VARIANT_WOW>,
+        cryptonight_triple_hash<CRYPTONIGHT, true,  VARIANT_WOW>,
+        cryptonight_quad_hash<CRYPTONIGHT,   true,  VARIANT_WOW>,
+        cryptonight_penta_hash<CRYPTONIGHT,  true,  VARIANT_WOW>,
+
 #       ifndef XMRIG_NO_AEON
         cryptonight_single_hash<CRYPTONIGHT_LITE, false, VARIANT_0>,
         cryptonight_double_hash<CRYPTONIGHT_LITE, false, VARIANT_0>,
@@ -181,16 +340,24 @@ xmrig::CpuThread::cn_hash_fun xmrig::CpuThread::fn(Algo algorithm, AlgoVariant a
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
 #       else
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_0
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_1
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TUBE
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_MSR
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XHV
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
 #       endif
 
 #       ifndef XMRIG_NO_SUMO
@@ -235,26 +402,73 @@ xmrig::CpuThread::cn_hash_fun xmrig::CpuThread::fn(Algo algorithm, AlgoVariant a
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
 #       else
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_0
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_1
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TUBE
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_MSR
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XHV
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
 #       endif
-#       ifndef XMRIG_NO_ASM
-        cryptonight_single_hash_asm<CRYPTONIGHT, VARIANT_2, ASM_INTEL>,
-        cryptonight_single_hash_asm<CRYPTONIGHT, VARIANT_2, ASM_RYZEN>,
-        cryptonight_double_hash_asm<CRYPTONIGHT, VARIANT_2, ASM_INTEL>
+
+#       ifndef XMRIG_NO_CN_PICO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_0
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_1
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TUBE
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_MSR
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XHV
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+
+        cryptonight_single_hash<CRYPTONIGHT_PICO, false, VARIANT_TRTL>,
+        cryptonight_double_hash<CRYPTONIGHT_PICO, false, VARIANT_TRTL>,
+        cryptonight_single_hash<CRYPTONIGHT_PICO, true,  VARIANT_TRTL>,
+        cryptonight_double_hash<CRYPTONIGHT_PICO, true,  VARIANT_TRTL>,
+        cryptonight_triple_hash<CRYPTONIGHT_PICO, false, VARIANT_TRTL>,
+        cryptonight_quad_hash<CRYPTONIGHT_PICO,   false, VARIANT_TRTL>,
+        cryptonight_penta_hash<CRYPTONIGHT_PICO,  false, VARIANT_TRTL>,
+        cryptonight_triple_hash<CRYPTONIGHT_PICO, true,  VARIANT_TRTL>,
+        cryptonight_quad_hash<CRYPTONIGHT_PICO,   true,  VARIANT_TRTL>,
+        cryptonight_penta_hash<CRYPTONIGHT_PICO,  true,  VARIANT_TRTL>,
+
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
+#       else
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_0
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_1
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TUBE
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_MSR
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XHV
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_XAO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_RTO
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_2
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_HALF
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_TRTL
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_GPU
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, // VARIANT_WOW
 #       endif
     };
 
+    static_assert(count == sizeof(func_table) / sizeof(func_table[0]), "func_table size mismatch");
+
+    const size_t index = VARIANT_MAX * 10 * algorithm + 10 * variant + av - 1;
+
 #   ifndef NDEBUG
-    const size_t index = fnIndex(algorithm, av, variant, assembly);
     cn_hash_fun func = func_table[index];
 
     assert(index < sizeof(func_table) / sizeof(func_table[0]));
@@ -262,7 +476,7 @@ xmrig::CpuThread::cn_hash_fun xmrig::CpuThread::fn(Algo algorithm, AlgoVariant a
 
     return func;
 #   else
-    return func_table[fnIndex(algorithm, av, variant, assembly)];
+    return func_table[index];
 #   endif
 }
 
@@ -423,34 +637,4 @@ rapidjson::Value xmrig::CpuThread::toConfig(rapidjson::Document &doc) const
 #   endif
 
     return obj;
-}
-
-
-size_t xmrig::CpuThread::fnIndex(Algo algorithm, AlgoVariant av, Variant variant, Assembly assembly)
-{
-    const size_t index = VARIANT_MAX * 10 * algorithm + 10 * variant + av - 1;
-
-#   ifndef XMRIG_NO_ASM
-    if (assembly == ASM_AUTO) {
-        assembly = Cpu::info()->assembly();
-    }
-
-    if (assembly == ASM_NONE) {
-        return index;
-    }
-
-    constexpr const size_t offset = VARIANT_MAX * 10 * 3;
-
-    if (algorithm == CRYPTONIGHT && variant == VARIANT_2) {
-        if (av == AV_SINGLE) {
-            return offset + assembly - 2;
-        }
-
-        if (av == AV_DOUBLE) {
-            return offset + 2;
-        }
-    }
-#   endif
-
-    return index;
 }

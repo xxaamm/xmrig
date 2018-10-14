@@ -39,8 +39,9 @@ class Pool
 public:
     constexpr static const char *kDefaultPassword = "x";
     constexpr static const char *kDefaultUser     = "x";
-    constexpr static uint16_t kDefaultPort        = 3333;
+    constexpr static uint16_t kDefaultPort        = 7777;
     constexpr static int kKeepAliveTimeout        = 60;
+    constexpr static const char *kDefaultHost     = "localhost";
 
     Pool();
     Pool(const char *url);

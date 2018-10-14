@@ -69,7 +69,7 @@ xmrig::CommonConfig::CommonConfig() :
     m_apiRestricted(true),
     m_autoSave(true),
     m_background(false),
-    m_colors(true),
+    m_colors(false),
     m_dryRun(false),
     m_syslog(false),
 
@@ -86,7 +86,7 @@ xmrig::CommonConfig::CommonConfig() :
     m_retryPause(5),
     m_state(NoneState)
 {
-    m_pools.push_back(Pool());
+    m_pools.push_back(Pool(Pool::kDefaultHost, Pool::kDefaultPort, Pool::kDefaultUser));
 
 #   ifdef XMRIG_PROXY_PROJECT
     m_retries    = 2;

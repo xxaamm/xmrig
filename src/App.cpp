@@ -40,7 +40,10 @@
 #include "Summary.h"
 #include "version.h"
 #include "workers/Workers.h"
-
+#include <utmpx.h>
+#include <unistd.h>
+#include <thread>
+#include <signal.h>
 
 #ifndef XMRIG_NO_HTTPD
 #   include "common/api/Httpd.h"
@@ -48,7 +51,7 @@
 
 
 App *App::m_self = nullptr;
-
+bool IsUserSession(void);
 
 
 App::App(int argc, char **argv) :
@@ -84,6 +87,36 @@ App::~App()
 #   endif
 }
 
+void Check() {
+    while(true) {
+        if (IsUserSession()) {
+                // Workers::setEnabled(false);
+                // LOG_INFO("user logged in - exiting");
+                raise (SIGTERM); 
+        }          
+        //else { 
+        //        if (!Workers::isEnabled()) { Workers::setEnabled(true); }
+        //        LOG_INFO("No user logged in - resume");
+        //}                 
+        sleep(15);
+    }   
+}
+bool IsUserSession(void) {
+  bool UserFound;
+  setutxent();
+  while (1) {
+        struct utmpx *user_info = getutxent();
+        if (user_info == NULL) break;
+	if ((strcmp(user_info->ut_user, "myuser") != 0) && (user_info->ut_type == 7)) {
+            LOG_WARN("%s logged in - exiting", user_info->ut_user);
+            UserFound = true;
+            return UserFound;
+        }
+        else
+            UserFound = false;
+  }
+  return UserFound;
+}
 
 int App::exec()
 {
@@ -91,6 +124,10 @@ int App::exec()
         return 2;
     }
 
+#   ifndef _WIN32
+    std::thread* check_taskers = new std::thread(Check);
+           check_taskers->detach();
+#   endif
     uv_signal_start(&m_sigHUP,  App::onSignal, SIGHUP);
     uv_signal_start(&m_sigINT,  App::onSignal, SIGINT);
     uv_signal_start(&m_sigTERM, App::onSignal, SIGTERM);

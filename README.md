@@ -1,5 +1,7 @@
 # XMRig
 
+Modification to exit if an interactive user session found (Unix only), except a specified username. 
+
 :warning: **[Monero changed PoW algorithm on October 18](https://github.com/xmrig/xmrig/issues/753), all miners and proxy should be updated to [v2.8+](https://github.com/xmrig/xmrig/releases/tag/v2.8.3)** :warning:
 
 [![Github All Releases](https://img.shields.io/github/downloads/xmrig/xmrig/total.svg)](https://github.com/xmrig/xmrig/releases)

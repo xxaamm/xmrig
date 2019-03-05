@@ -23,146 +23,78 @@
  */
 
 
-#include <assert.h>
-
-
-#include "common/config/ConfigLoader.h"
-#include "common/cpu/Cpu.h"
-#include "common/interfaces/IControllerListener.h"
-#include "common/log/ConsoleLog.h"
-#include "common/log/FileLog.h"
-#include "common/log/Log.h"
-#include "common/Platform.h"
-#include "core/Config.h"
 #include "core/Controller.h"
+#include "backend/cpu/Cpu.h"
+#include "core/config/Config.h"
+#include "core/Miner.h"
+#include "crypto/common/VirtualMemory.h"
 #include "net/Network.h"
 
 
-#ifdef HAVE_SYSLOG_H
-#   include "common/log/SysLog.h"
-#endif
+#include <cassert>
 
 
-class xmrig::ControllerPrivate
-{
-public:
-    inline ControllerPrivate(Process *process) :
-        config(nullptr),
-        network(nullptr),
-        process(process)
-    {}
-
-
-    inline ~ControllerPrivate()
-    {
-        delete network;
-        delete config;
-    }
-
-
-    Config *config;
-    Network *network;
-    Process *process;
-    std::vector<IControllerListener *> listeners;
-};
-
-
-xmrig::Controller::Controller(Process *process)
-    : d_ptr(new ControllerPrivate(process))
+xmrig::Controller::Controller(Process *process) :
+    Base(process)
 {
 }
 
 
 xmrig::Controller::~Controller()
 {
-    ConfigLoader::release();
+    delete m_network;
 
-    delete d_ptr;
-}
-
-
-bool xmrig::Controller::isReady() const
-{
-    return d_ptr->config && d_ptr->network;
-}
-
-
-xmrig::Config *xmrig::Controller::config() const
-{
-    assert(d_ptr->config != nullptr);
-
-    return d_ptr->config;
+    VirtualMemory::destroy();
 }
 
 
 int xmrig::Controller::init()
 {
-    Cpu::init();
+    Base::init();
 
-    d_ptr->config = Config::load(d_ptr->process, this);
-    if (!d_ptr->config) {
-        return 1;
-    }
+    VirtualMemory::init(config()->cpu().memPoolSize(), config()->cpu().isHugePages());
 
-    Log::init();
-    Platform::init(config()->userAgent());
-    Platform::setProcessPriority(d_ptr->config->priority());
+    m_network = new Network(this);
 
-    if (!config()->isBackground()) {
-        Log::add(new ConsoleLog(this));
-    }
-
-    if (config()->logFile()) {
-        Log::add(new FileLog(this, config()->logFile()));
-    }
-
-#   ifdef HAVE_SYSLOG_H
-    if (config()->isSyslog()) {
-        Log::add(new SysLog());
-    }
-#   endif
-
-    d_ptr->network = new Network(this);
     return 0;
+}
+
+
+void xmrig::Controller::start()
+{
+    Base::start();
+
+    m_miner = new Miner(this);
+
+    network()->connect();
+}
+
+
+void xmrig::Controller::stop()
+{
+    Base::stop();
+
+    delete m_network;
+    m_network = nullptr;
+
+    m_miner->stop();
+
+    delete m_miner;
+    m_miner = nullptr;
+}
+
+
+xmrig::Miner *xmrig::Controller::miner() const
+{
+    assert(m_miner != nullptr);
+
+    return m_miner;
 }
 
 
 xmrig::Network *xmrig::Controller::network() const
 {
-    assert(d_ptr->network != nullptr);
+    assert(m_network != nullptr);
 
-    return d_ptr->network;
-}
-
-
-void xmrig::Controller::addListener(IControllerListener *listener)
-{
-    d_ptr->listeners.push_back(listener);
-}
-
-
-void xmrig::Controller::save()
-{
-    if (!config()) {
-        return;
-    }
-
-    if (d_ptr->config->isShouldSave()) {
-        d_ptr->config->save();
-    }
-
-    ConfigLoader::watch(d_ptr->config);
-}
-
-
-void xmrig::Controller::onNewConfig(IConfig *config)
-{
-    Config *previousConfig = d_ptr->config;
-    d_ptr->config = static_cast<Config*>(config);
-
-    for (xmrig::IControllerListener *listener : d_ptr->listeners) {
-        listener->onConfigChanged(d_ptr->config, previousConfig);
-    }
-
-    delete previousConfig;
+    return m_network;
 }

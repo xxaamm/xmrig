@@ -23,11 +23,12 @@
  */
 
 
+#include <ctime>
 #include <uv.h>
-#include <time.h>
 
 
 #include "base/kernel/Process.h"
+#include "base/tools/Chrono.h"
 
 
 static size_t location(xmrig::Process::Location location, char *buf, size_t max)
@@ -50,12 +51,7 @@ static size_t location(xmrig::Process::Location location, char *buf, size_t max)
 xmrig::Process::Process(int argc, char **argv) :
     m_arguments(argc, argv)
 {
-    srand(static_cast<unsigned int>(static_cast<uintptr_t>(time(nullptr)) ^ reinterpret_cast<uintptr_t>(this)));
-}
-
-
-xmrig::Process::~Process()
-{
+    srand(static_cast<unsigned int>(Chrono::currentMSecsSinceEpoch() ^ reinterpret_cast<uintptr_t>(this)));
 }
 
 

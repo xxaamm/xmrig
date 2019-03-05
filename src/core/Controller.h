@@ -26,44 +26,40 @@
 #define XMRIG_CONTROLLER_H
 
 
-#include "base/kernel/interfaces/IConfigListener.h"
-
-
-class StatsData;
+#include "base/kernel/Base.h"
+#include "base/tools/Object.h"
 
 
 namespace xmrig {
 
 
-class Config;
-class ControllerPrivate;
-class IControllerListener;
+class Job;
+class Miner;
 class Network;
-class Process;
 
 
-class Controller : public IConfigListener
+class Controller : public Base
 {
 public:
+    XMRIG_DISABLE_COPY_MOVE_DEFAULT(Controller)
+
     Controller(Process *process);
     ~Controller() override;
 
-    bool isReady() const;
-    Config *config() const;
-    int init();
-    Network *network() const;
-    void addListener(IControllerListener *listener);
-    void save();
+    int init() override;
+    void start() override;
+    void stop() override;
 
-protected:
-    void onNewConfig(IConfig *config) override;
+    Miner *miner() const;
+    Network *network() const;
 
 private:
-    ControllerPrivate *d_ptr;
+    Miner *m_miner     = nullptr;
+    Network *m_network = nullptr;
 };
 
 
-} /* namespace xmrig */
+} // namespace xmrig
 
 
 #endif /* XMRIG_CONTROLLER_H */

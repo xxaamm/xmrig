@@ -61,7 +61,7 @@ xmrig::App::App(Process *process) :
     m_httpd(nullptr),
     m_signals(nullptr)
 {
-    m_controller = new xmrig::Controller(process);
+    m_controller = new Controller(process);
     if (m_controller->init() != 0) {
         return;
     }
@@ -218,7 +218,7 @@ void xmrig::App::onSignal(int signum)
         break;
 
     default:
-        break;
+        return;
     }
 
     close();

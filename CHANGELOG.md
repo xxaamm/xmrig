@@ -1,3 +1,24 @@
+# v5.1.1
+- [#1365](https://github.com/xmrig/xmrig/issues/1365) Fixed various system response/stability issues.
+  - Added new CPU option `yield` and command line equivalent `--cpu-no-yield`.
+- [#1363](https://github.com/xmrig/xmrig/issues/1363) Fixed wrong priority of main miner thread.
+
+# v5.1.0
+- [#1351](https://github.com/xmrig/xmrig/pull/1351) RandomX optimizations and fixes.
+  - Improved RandomX performance (up to +6-7% on Intel CPUs, +2-3% on Ryzen CPUs)
+  - Added workaround for Intel JCC erratum bug see https://www.phoronix.com/scan.php?page=article&item=intel-jcc-microcode&num=1 for details.
+  - Note! Always disable "Hardware prefetcher" and "Adjacent cacheline prefetch" in BIOS for Intel CPUs to get the optimal RandomX performance.
+- [#1307](https://github.com/xmrig/xmrig/issues/1307) Fixed mining resume after donation round for pools with `self-select` feature.
+- [#1318](https://github.com/xmrig/xmrig/issues/1318#issuecomment-559676080) Added option `"mode"` (or `--randomx-mode`) for RandomX.
+  - Added memory information on miner startup.
+  - Added `resources` field to summary API with memory information and load average.
+
+# v5.0.1
+- [#1234](https://github.com/xmrig/xmrig/issues/1234) Fixed compatibility with some AMD GPUs.
+- [#1284](https://github.com/xmrig/xmrig/issues/1284) Fixed build without RandomX.
+- [#1285](https://github.com/xmrig/xmrig/issues/1285) Added command line options `--cuda-bfactor-hint` and `--cuda-bsleep-hint`.
+- [#1290](https://github.com/xmrig/xmrig/pull/1290) Fixed 32-bit ARM compilation.
+
 # v5.0.0
 This version is first stable unified 3 in 1 GPU+CPU release, OpenCL support built in in miner and not require additional external dependencies on compile time, NVIDIA CUDA available as external [CUDA plugin](https://github.com/xmrig/xmrig-cuda), for convenient, 3 in 1 downloads with recent CUDA version also provided.
 

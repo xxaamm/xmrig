@@ -147,7 +147,9 @@ void xmrig::ConfigTransform::transform(rapidjson::Document &doc, int key, const 
 
     case IConfig::MemoryPoolKey: /* --cpu-memory-pool */
         return set(doc, kCpu, "memory-pool", static_cast<int64_t>(strtol(arg, nullptr, 10)));
-        break;
+
+    case IConfig::YieldKey: /* --cpu-no-yield */
+        return set(doc, kCpu, "yield", false);
 
 #   ifdef XMRIG_FEATURE_ASM
     case IConfig::AssemblyKey: /* --asm */
@@ -160,6 +162,9 @@ void xmrig::ConfigTransform::transform(rapidjson::Document &doc, int key, const 
 
     case IConfig::RandomXNumaKey: /* --randomx-no-numa */
         return set(doc, kRandomX, "numa", false);
+
+    case IConfig::RandomXModeKey: /* --randomx-mode */
+        return set(doc, kRandomX, "mode", arg);
 #   endif
 
 #   ifdef XMRIG_FEATURE_OPENCL
@@ -195,6 +200,12 @@ void xmrig::ConfigTransform::transform(rapidjson::Document &doc, int key, const 
     case IConfig::CudaDevicesKey: /* --cuda-devices */
         set(doc, kCuda, kEnabled, true);
         return set(doc, kCuda, "devices-hint", arg);
+
+    case IConfig::CudaBFactorKey: /* --cuda-bfactor-hint */
+        return set(doc, kCuda, "bfactor-hint", static_cast<uint64_t>(strtol(arg, nullptr, 10)));
+
+    case IConfig::CudaBSleepKey: /* --cuda-bsleep-hint */
+        return set(doc, kCuda, "bsleep-hint", static_cast<uint64_t>(strtol(arg, nullptr, 10)));
 #   endif
 
 #   ifdef XMRIG_FEATURE_NVML

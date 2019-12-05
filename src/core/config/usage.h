@@ -80,12 +80,14 @@ static inline const std::string &usage()
     u += "      --cpu-priority            set process priority (0 idle, 2 normal to 5 highest)\n";
     u += "      --cpu-max-threads-hint=N  maximum CPU threads count (in percentage) hint for autoconfig\n";
     u += "      --cpu-memory-pool=N       number of 2 MB pages for persistent memory pool, -1 (auto), 0 (disable)\n";
+    u += "      --cpu-no-yield            prefer maximum hashrate rather than system response/stability\n";
     u += "      --no-huge-pages           disable huge pages support\n";
     u += "      --asm=ASM                 ASM optimizations, possible values: auto, none, intel, ryzen, bulldozer\n";
 
 #   ifdef XMRIG_ALGO_RANDOMX
     u += "      --randomx-init=N          threads count to initialize RandomX dataset\n";
     u += "      --randomx-no-numa         disable NUMA support for RandomX\n";
+    u += "      --randomx-mode=MODE       RandomX mode: auto, fast, light\n";
 #   endif
 
 #   ifdef XMRIG_FEATURE_HTTP
@@ -113,6 +115,8 @@ static inline const std::string &usage()
     u += "      --cuda                    enable CUDA mining backend\n";
     u += "      --cuda-loader=PATH        path to CUDA plugin (xmrig-cuda.dll or libxmrig-cuda.so)\n";
     u += "      --cuda-devices=N          comma separated list of CUDA devices to use\n";
+    u += "      --cuda-bfactor-hint=N     bfactor hint for autoconfig (0-12)\n";
+    u += "      --cuda-bsleep-hint=N      bsleep hint for autoconfig\n";
 #   endif
 #   ifdef XMRIG_FEATURE_NVML
     u += "      --no-nvml                 disable NVML (NVIDIA Management Library) support\n";
